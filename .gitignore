@@ -1,0 +1,10 @@
+/artifacts/
+
+
+# python cache
+**/__pycache__/
+*.py[cod]
+*.pycache
+*.pyc
+
+*.egg-info/

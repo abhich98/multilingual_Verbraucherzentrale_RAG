@@ -6,4 +6,25 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dvc>=3.67.1",
+    "pypdf>=5.0.0",
 ]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+rag-ingest = "multilingual_rag.ingestion.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
