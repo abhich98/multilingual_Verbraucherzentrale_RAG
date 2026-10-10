@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from multilingual_rag.ingestion.filtering import (
-    ARTICLE_END_MARKERS,
-    READ_MORE_LINK_LABEL,
-    SOURCE_LINE_PREFIX,
-    VERBRAUCHERZENTRALE_TITLE_KEYWORD,
+    PUBLISHER_PROFILES,
 )
 
 
@@ -59,10 +57,7 @@ def build_ingestion_manifest(
             "files": source_files,
         },
         "filtering": {
-            "title_contains": VERBRAUCHERZENTRALE_TITLE_KEYWORD,
-            "article_end_markers": list(ARTICLE_END_MARKERS),
-            "related_content_link_label": READ_MORE_LINK_LABEL,
-            "removed_line_prefix": SOURCE_LINE_PREFIX,
+            "publisher_profiles": [asdict(profile) for profile in PUBLISHER_PROFILES],
         },
         "chunking": {"chunk_size": chunk_size, "overlap": overlap},
         "output": {

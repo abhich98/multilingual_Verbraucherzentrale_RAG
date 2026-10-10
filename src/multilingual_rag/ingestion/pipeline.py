@@ -17,8 +17,8 @@ from urllib.parse import urlsplit
 
 from multilingual_rag.ingestion.filtering import (
     extract_page_text,
-    filter_verbraucherzentrale_pages,
-    is_verbraucherzentrale_title,
+    filter_pages,
+    get_publisher_profile,
 )
 from multilingual_rag.ingestion.manifest import build_ingestion_manifest
 
@@ -69,8 +69,9 @@ class TextChunk:
     chunk_index: int
 
 
-def extract_pdf_url(reader: _PdfDocument, page_texts: list[str]) -> str:
+def extract_pdf_url(reader: _PdfDocument, page_texts: list[str], publisher_title: str) -> str:
     """Return the article URL in PDF text, falling back to the first PDF hyperlink."""
+
     # Printed footer URLs can be clipped in the PDF; do not publish an incomplete citation URL.
     raw_text_urls = [url.rstrip(".,;:!?)]}") for text in page_texts for url in URL_PATTERN.findall(text)]
     has_truncated_text_url = any(url.endswith(("…", "...")) for url in raw_text_urls)
@@ -87,16 +88,20 @@ def extract_pdf_url(reader: _PdfDocument, page_texts: list[str]) -> str:
         return ""
 
     candidates = text_urls + linked_urls
+    profile = get_publisher_profile(publisher_title)
+    if profile is None:
+        return ""
+
     for url in candidates:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").casefold()
         if (
-            (host == "verbraucherzentrale.de" or host.endswith(".verbraucherzentrale.de"))
+            (host == profile.host or host.endswith(f".{profile.host}"))
             and parsed.path not in ("", "/")
             and not parsed.path.startswith("/media/")
         ):
             return url
-    return candidates[0] if candidates else ""
+    return ""
 
 
 def _normalize_text(text: str) -> str:
@@ -120,7 +125,7 @@ def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
                     index + 1,
                     extract_page_text(
                         page,
-                        publisher_specific=is_verbraucherzentrale_title(title),
+                        publisher_title=title,
                     ),
                 )
                 for index, page in enumerate(reader)
@@ -129,6 +134,7 @@ def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
             url = extract_pdf_url(
                 reader,
                 [page.get_text("text", sort=True) for page in reader],
+                publisher_title=title,
             )
     except IngestionError:
         raise
@@ -279,7 +285,7 @@ def ingest_pdf_directory(
     for path in pdf_paths:
         pages = extract_pdf(path, input_dir)
         source_digests[pages[0].source_path] = pages[0].source_sha256
-        pages = filter_verbraucherzentrale_pages(pages)
+        pages = filter_pages(pages)
         chunks.extend(chunk_pages(pages, chunk_size=chunk_size, overlap=overlap))
     _write_jsonl_atomic(output_path, chunks)
 
