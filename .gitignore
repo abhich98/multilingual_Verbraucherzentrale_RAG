@@ -8,3 +8,12 @@
 *.pyc
 
 *.egg-info/
+
+# environment variables
+.env
+
+# sentenceTransformers cache
+**/.cache/
+
+**/.pytest_cache/
+
