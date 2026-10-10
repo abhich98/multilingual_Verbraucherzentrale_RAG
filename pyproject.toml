@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dvc>=3.67.1",
-    "pypdf>=5.0.0",
+    "pymupdf>=1.28.2",
+    "sentence-transformers>=6.1.0",
+    "torch>=2.14.1",
 ]
 
 [build-system]

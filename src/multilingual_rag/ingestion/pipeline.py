@@ -10,20 +10,34 @@ import re
 import tempfile
 import unicodedata
 from dataclasses import asdict, dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator, Protocol
 from urllib.parse import urlsplit
 
-from pypdf import PdfReader
-
-from multilingual_rag.ingestion.filtering import filter_verbraucherzentrale_pages
+from multilingual_rag.ingestion.filtering import (
+    extract_page_text,
+    filter_verbraucherzentrale_pages,
+    is_verbraucherzentrale_title,
+)
 from multilingual_rag.ingestion.manifest import build_ingestion_manifest
 
 
 logger = logging.getLogger(__name__)
+pymupdf = import_module("pymupdf")
 
 SEPARATORS = ("\n\n", ". ", "? ", "! ")
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+
+
+class _LinkPage(Protocol):
+    def get_links(self) -> list[dict[str, Any]]: ...
+
+
+class _PdfDocument(Protocol):
+    is_encrypted: bool
+
+    def __iter__(self) -> Iterator[_LinkPage]: ...
 
 
 class IngestionError(RuntimeError):
@@ -55,17 +69,22 @@ class TextChunk:
     chunk_index: int
 
 
-def extract_pdf_url(reader: PdfReader, page_texts: list[str]) -> str:
+def extract_pdf_url(reader: _PdfDocument, page_texts: list[str]) -> str:
     """Return the article URL in PDF text, falling back to the first PDF hyperlink."""
-    # Text usually contains the canonical article URL; annotations often point to site navigation.
-    text_urls = [url.rstrip(".,;:!?)]}") for text in page_texts for url in URL_PATTERN.findall(text)]
+    # Printed footer URLs can be clipped in the PDF; do not publish an incomplete citation URL.
+    raw_text_urls = [url.rstrip(".,;:!?)]}") for text in page_texts for url in URL_PATTERN.findall(text)]
+    has_truncated_text_url = any(url.endswith(("…", "...")) for url in raw_text_urls)
+    text_urls = [url for url in raw_text_urls if not url.endswith(("…", "..."))]
     linked_urls: list[str] = []
-    for page in reader.pages:
-        for annotation_ref in page.get("/Annots", []):
-            annotation = annotation_ref.get_object()
-            action = annotation.get("/A")
-            if action and action.get("/URI"):
-                linked_urls.append(str(action["/URI"]))
+    for page in reader:
+        linked_urls.extend(
+            link["uri"] for link in page.get_links() if link.get("uri")
+        )
+
+    # An annotation fallback is unsafe when the document printed a clipped canonical URL;
+    # its remaining links usually point to unrelated recommendations or site navigation.
+    if has_truncated_text_url and not text_urls:
+        return ""
 
     candidates = text_urls + linked_urls
     for url in candidates:
@@ -91,12 +110,26 @@ def _normalize_text(text: str) -> str:
 
 def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
     """Extract non-empty pages with source path, hash, page and title metadata."""
+    title = path.stem
     try:
-        reader = PdfReader(path)
-        if reader.is_encrypted:
-            raise IngestionError(f"Encrypted PDF is not supported: {path}")
-        raw_pages = [(index + 1, page.extract_text() or "") for index, page in enumerate(reader.pages)]
-        url = extract_pdf_url(reader, [text for _, text in raw_pages])
+        with pymupdf.open(path) as reader:
+            if reader.is_encrypted:
+                raise IngestionError(f"Encrypted PDF is not supported: {path}")
+            raw_pages = [
+                (
+                    index + 1,
+                    extract_page_text(
+                        page,
+                        publisher_specific=is_verbraucherzentrale_title(title),
+                    ),
+                )
+                for index, page in enumerate(reader)
+            ]
+            # Capture footer URLs before margin removal; those strings may contain citation metadata.
+            url = extract_pdf_url(
+                reader,
+                [page.get_text("text", sort=True) for page in reader],
+            )
     except IngestionError:
         raise
     except Exception as exc:
@@ -105,7 +138,6 @@ def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
 
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     relative_path = path.relative_to(root).as_posix()
-    title = path.stem
     pages = [
         DocumentPage(
             source_path=relative_path,

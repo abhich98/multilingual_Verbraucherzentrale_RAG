@@ -7,7 +7,12 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from multilingual_rag.ingestion.filtering import ARTICLE_END_MARKER, SOURCE_LINE_PREFIX, VERBRAUCHERZENTRALE_TITLE_KEYWORD
+from multilingual_rag.ingestion.filtering import (
+    ARTICLE_END_MARKERS,
+    READ_MORE_LINK_LABEL,
+    SOURCE_LINE_PREFIX,
+    VERBRAUCHERZENTRALE_TITLE_KEYWORD,
+)
 
 
 def _get_git_commit(root: Path) -> str | None:
@@ -55,7 +60,8 @@ def build_ingestion_manifest(
         },
         "filtering": {
             "title_contains": VERBRAUCHERZENTRALE_TITLE_KEYWORD,
-            "article_end_marker": ARTICLE_END_MARKER,
+            "article_end_markers": list(ARTICLE_END_MARKERS),
+            "related_content_link_label": READ_MORE_LINK_LABEL,
             "removed_line_prefix": SOURCE_LINE_PREFIX,
         },
         "chunking": {"chunk_size": chunk_size, "overlap": overlap},
