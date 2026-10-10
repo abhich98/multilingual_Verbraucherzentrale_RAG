@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -11,12 +12,19 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import urlsplit
 
 from pypdf import PdfReader
 
+from multilingual_rag.ingestion.filtering import filter_verbraucherzentrale_pages
+from multilingual_rag.ingestion.manifest import build_ingestion_manifest
 
-SEPARATORS = ("\n\n", ". ", "? ", "! ") 
-# "\n", " " can be separators, but these are removed to favor chunk splits containing full sentences
+
+logger = logging.getLogger(__name__)
+
+SEPARATORS = ("\n\n", ". ", "? ", "! ")
+URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+
 
 class IngestionError(RuntimeError):
     """Raised when source documents cannot be safely ingested."""
@@ -47,6 +55,31 @@ class TextChunk:
     chunk_index: int
 
 
+def extract_pdf_url(reader: PdfReader, page_texts: list[str]) -> str:
+    """Return the article URL in PDF text, falling back to the first PDF hyperlink."""
+    # Text usually contains the canonical article URL; annotations often point to site navigation.
+    text_urls = [url.rstrip(".,;:!?)]}") for text in page_texts for url in URL_PATTERN.findall(text)]
+    linked_urls: list[str] = []
+    for page in reader.pages:
+        for annotation_ref in page.get("/Annots", []):
+            annotation = annotation_ref.get_object()
+            action = annotation.get("/A")
+            if action and action.get("/URI"):
+                linked_urls.append(str(action["/URI"]))
+
+    candidates = text_urls + linked_urls
+    for url in candidates:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").casefold()
+        if (
+            (host == "verbraucherzentrale.de" or host.endswith(".verbraucherzentrale.de"))
+            and parsed.path not in ("", "/")
+            and not parsed.path.startswith("/media/")
+        ):
+            return url
+    return candidates[0] if candidates else ""
+
+
 def _normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFC", text).replace("\u00ad", "")
     text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
@@ -63,9 +96,11 @@ def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
         if reader.is_encrypted:
             raise IngestionError(f"Encrypted PDF is not supported: {path}")
         raw_pages = [(index + 1, page.extract_text() or "") for index, page in enumerate(reader.pages)]
+        url = extract_pdf_url(reader, [text for _, text in raw_pages])
     except IngestionError:
         raise
     except Exception as exc:
+        logger.exception("Could not extract PDF", extra={"source_path": str(path)})
         raise IngestionError(f"Could not read PDF {path}: {exc}") from exc
 
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -74,7 +109,7 @@ def extract_pdf(path: Path, root: Path) -> list[DocumentPage]:
     pages = [
         DocumentPage(
             source_path=relative_path,
-            url="",
+            url=url,
             source_sha256=digest,
             title=title,
             language="de",
@@ -141,7 +176,7 @@ def chunk_pages(
                     chunk_id=hashlib.sha256(identity.encode("utf-8")).hexdigest(),
                     text=piece,
                     source_path=page.source_path,
-                    url="",
+                    url=page.url,
                     source_sha256=page.source_sha256,
                     title=page.title,
                     language=page.language,
@@ -172,6 +207,29 @@ def _write_jsonl_atomic(output_path: Path, chunks: list[TextChunk]) -> None:
             temporary_path.unlink()
 
 
+def _write_json_atomic(output_path: Path, data: dict[str, object]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output_path.parent,
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            json.dump(data, stream, ensure_ascii=False, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary_path.replace(output_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
 def ingest_pdf_directory(
     input_dir: Path, output_path: Path, *, chunk_size: int = 1000, overlap: int = 150
 ) -> int:
@@ -183,9 +241,33 @@ def ingest_pdf_directory(
     if not pdf_paths:
         raise IngestionError(f"No PDF files found under {input_dir}")
 
+    logger.info("Starting PDF ingestion", extra={"pdf_count": len(pdf_paths)})
     chunks: list[TextChunk] = []
+    source_digests: dict[str, str] = {}
     for path in pdf_paths:
         pages = extract_pdf(path, input_dir)
+        source_digests[pages[0].source_path] = pages[0].source_sha256
+        pages = filter_verbraucherzentrale_pages(pages)
         chunks.extend(chunk_pages(pages, chunk_size=chunk_size, overlap=overlap))
     _write_jsonl_atomic(output_path, chunks)
+
+    manifest = build_ingestion_manifest(
+        input_dir,
+        output_path,
+        source_digests,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        chunk_count=len(chunks),
+    )
+    manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
+    _write_json_atomic(manifest_path, manifest)
+    logger.info(
+        "PDF ingestion complete",
+        extra={
+            "pdf_count": len(source_digests),
+            "chunk_count": len(chunks),
+            "output_path": str(output_path),
+            "manifest_path": str(manifest_path),
+        },
+    )
     return len(chunks)

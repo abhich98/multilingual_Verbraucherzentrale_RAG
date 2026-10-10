@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from multilingual_rag.ingestion.pipeline import IngestionError, ingest_pdf_directory
 
 
+logger = logging.getLogger(__name__)
+
+
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Extract and chunk PDF source documents.")
     parser.add_argument("--input", type=Path, default=Path("data/Verbraucherzentrale_artikel"))
     parser.add_argument("--output", type=Path, default=Path("artifacts/chunks.jsonl"))
@@ -22,7 +27,7 @@ def main() -> None:
         )
     except (IngestionError, ValueError) as exc:
         parser.error(str(exc))
-    print(f"Wrote {count} chunks to {args.output}")
+    logger.info("Wrote %d chunks to %s", count, args.output)
 
 
 if __name__ == "__main__":
