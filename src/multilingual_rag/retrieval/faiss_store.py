@@ -79,6 +79,7 @@ def build_faiss_index(
     device: str = "cpu",
     revision: str | None = None,
     batch_size: int = 32,
+    cache_dir: str | None = None,
     embedder: EmbeddingProvider | None = None,
 ) -> Path:
     """Embed chunks, persist an immutable FAISS version, and promote its pointer."""
@@ -91,7 +92,7 @@ def build_faiss_index(
     source_digest = _sha256(source_bytes)
     logger.info("Starting embedding build", extra={"chunk_count": len(chunks)})
 
-    embedder = embedder or E5Embedder(model_name, device=device, revision=revision)
+    embedder = embedder or E5Embedder(model_name, device=device, revision=revision, cache_dir=cache_dir)
     vectors = np.asarray(
         embedder.encode_passages(
             [chunk["text"] for chunk in chunks], batch_size=batch_size

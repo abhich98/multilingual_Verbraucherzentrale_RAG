@@ -26,6 +26,7 @@ class E5Embedder:
         device: str = "cpu",
         revision: str | None = None,
         model: Any | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         self.model_name = model_name
         self.device = device
@@ -33,7 +34,7 @@ class E5Embedder:
         if model is None:
             from sentence_transformers import SentenceTransformer
 
-            model = SentenceTransformer(model_name, device=device, revision=revision)
+            model = SentenceTransformer(model_name, device=device, revision=revision, cache_folder=cache_dir)
         self._model = model
 
     def encode_passages(

@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--model", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--revision", help="Optional Hugging Face model revision to pin")
     parser.add_argument("--device", default="cpu", help="SentenceTransformer device, default: cpu")
+    parser.add_argument("--cache-dir", help="Optional cache directory for the model", default=Path(".cache/"))
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
 
@@ -32,6 +33,7 @@ def main() -> None:
             device=args.device,
             revision=args.revision,
             batch_size=args.batch_size,
+            cache_dir=args.cache_dir,
         )
     except (FileNotFoundError, ValueError, OSError) as exc:
         parser.error(str(exc))
