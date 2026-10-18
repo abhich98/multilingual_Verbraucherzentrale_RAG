@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import tempfile
 from dataclasses import dataclass
@@ -20,6 +19,7 @@ from multilingual_rag.retrieval.embeddings import (
     E5Embedder,
     EmbeddingProvider,
 )
+from multilingual_rag.json_utils import write_json_atomic
 
 
 logger = logging.getLogger(__name__)
@@ -51,24 +51,6 @@ def _load_chunks(chunks_path: Path) -> tuple[bytes, list[dict[str, Any]]]:
     if any("chunk_id" not in chunk for chunk in chunks):
         raise ValueError(f"Every chunk must contain a chunk_id: {chunks_path}")
     return source_bytes, chunks
-
-
-def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.",
-            suffix=".tmp", delete=False,
-        ) as stream:
-            temporary_path = Path(stream.name)
-            json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary_path.replace(path)
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
 
 
 def build_faiss_index(
@@ -152,14 +134,11 @@ def build_faiss_index(
             },
         }
         manifest_path = temporary_directory / "manifest.json"
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        write_json_atomic(manifest_path, manifest)
         temporary_directory.rename(build_directory)
 
     # Promote only after the complete immutable index directory is present.
-    _atomic_write_json(index_root / "current.json", {"build_id": build_id})
+    write_json_atomic(index_root / "current.json", {"build_id": build_id})
     logger.info(
         "Embedding index ready",
         extra={"build_id": build_id, "chunk_count": len(chunks), "dimension": vectors.shape[1]},

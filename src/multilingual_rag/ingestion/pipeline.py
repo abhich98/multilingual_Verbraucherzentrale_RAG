@@ -21,6 +21,7 @@ from multilingual_rag.ingestion.filtering import (
     get_publisher_profile,
 )
 from multilingual_rag.ingestion.manifest import build_ingestion_manifest
+from multilingual_rag.json_utils import write_json_atomic
 
 
 logger = logging.getLogger(__name__)
@@ -245,29 +246,6 @@ def _write_jsonl_atomic(output_path: Path, chunks: list[TextChunk]) -> None:
             temporary_path.unlink()
 
 
-def _write_json_atomic(output_path: Path, data: dict[str, object]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=output_path.parent,
-            prefix=f".{output_path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temporary_path = Path(stream.name)
-            json.dump(data, stream, ensure_ascii=False, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary_path.replace(output_path)
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
-
-
 def ingest_pdf_directory(
     input_dir: Path, output_path: Path, *, chunk_size: int = 1000, overlap: int = 150
 ) -> int:
@@ -298,7 +276,7 @@ def ingest_pdf_directory(
         chunk_count=len(chunks),
     )
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
-    _write_json_atomic(manifest_path, manifest)
+    write_json_atomic(manifest_path, manifest)
     logger.info(
         "PDF ingestion complete",
         extra={
