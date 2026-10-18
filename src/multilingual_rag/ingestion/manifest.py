@@ -11,6 +11,7 @@ from pathlib import Path
 from multilingual_rag.ingestion.filtering import (
     PUBLISHER_PROFILES,
 )
+from multilingual_rag import INGESTION_MANIFEST_VERSION
 
 
 def _get_git_commit(root: Path) -> str | None:
@@ -48,7 +49,7 @@ def build_ingestion_manifest(
     ).hexdigest()
 
     return {
-        "manifest_version": 1,
+        "manifest_version": INGESTION_MANIFEST_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "pipeline": {"git_commit": _get_git_commit(input_dir)},
         "input": {

@@ -9,6 +9,7 @@ import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from multilingual_rag.retrieval.embeddings import (
     EmbeddingProvider,
 )
 from multilingual_rag.json_utils import write_json_atomic
+from multilingual_rag import FAISS_INDEX_MANIFEST_VERSION
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,13 @@ class SearchResult:
 
     score: float
     chunk: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _LoadedIndex:
+    manifest: dict[str, Any]
+    chunks: list[dict[str, Any]]
+    index: Any
 
 
 def _sha256(data: bytes) -> str:
@@ -51,6 +60,18 @@ def _load_chunks(chunks_path: Path) -> tuple[bytes, list[dict[str, Any]]]:
     if any("chunk_id" not in chunk for chunk in chunks):
         raise ValueError(f"Every chunk must contain a chunk_id: {chunks_path}")
     return source_bytes, chunks
+
+
+@lru_cache(maxsize=1)
+def _load_cached_index(index_root: Path, build_id: str) -> _LoadedIndex:
+    build_directory = index_root / build_id
+    manifest = json.loads((build_directory / "manifest.json").read_text(encoding="utf-8"))
+    _, chunks = _load_chunks(build_directory / "chunks.jsonl")
+
+    import faiss
+
+    index = faiss.read_index(str(build_directory / manifest["index"]["file"]))
+    return _LoadedIndex(manifest=manifest, chunks=chunks, index=index)
 
 
 def build_faiss_index(
@@ -107,7 +128,7 @@ def build_faiss_index(
         metadata_path = temporary_directory / "chunks.jsonl"
         metadata_path.write_bytes(source_bytes)
         manifest = {
-            "manifest_version": 1,
+            "manifest_version": FAISS_INDEX_MANIFEST_VERSION,
             "build_id": build_id,
             "created_at_utc": created_at.isoformat(),
             "embedding": {
@@ -163,8 +184,8 @@ def search_index(
     if not pointer_path.is_file():
         raise FileNotFoundError(f"No active FAISS index found under {index_root}")
     build_id = json.loads(pointer_path.read_text(encoding="utf-8"))["build_id"]
-    build_directory = index_root / build_id
-    manifest = json.loads((build_directory / "manifest.json").read_text(encoding="utf-8"))
+    loaded_index = _load_cached_index(index_root.resolve(), build_id)
+    manifest = loaded_index.manifest
     if manifest["embedding"]["model"] != model_name:
         raise ValueError(
             f"Active index uses {manifest['embedding']['model']!r}, not {model_name!r}"
@@ -176,22 +197,21 @@ def search_index(
             f"not {revision!r}"
         )
 
-    chunks = [
-        json.loads(line)
-        for line in (build_directory / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
     embedder = embedder or E5Embedder(model_name, device=device, revision=revision)
     query_vector = np.ascontiguousarray(
         np.asarray(embedder.encode_query(query), dtype=np.float32).reshape(1, -1)
     )
-    import faiss
-
-    index = faiss.read_index(str(build_directory / manifest["index"]["file"]))
-    distances, identifiers = index.search(query_vector, min(top_k, len(chunks)))
+    distances, identifiers = loaded_index.index.search(
+        query_vector, min(top_k, len(loaded_index.chunks))
+    )
     results: list[SearchResult] = []
     for score, identifier in zip(distances[0], identifiers[0], strict=True):
         if identifier < 0:
             continue
-        results.append(SearchResult(score=float(score), chunk=chunks[int(identifier)]))
+        results.append(
+            SearchResult(
+                score=float(score),
+                chunk=dict(loaded_index.chunks[int(identifier)]),
+            )
+        )
     return results
