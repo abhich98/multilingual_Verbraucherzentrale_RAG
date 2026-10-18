@@ -51,7 +51,7 @@ The first indexing run downloads the embedding model and creates local FAISS art
 
 ### Obtain the source data
 
-Aroung 50 PDF articles are included in the initial corpus. The Git-tracked file `data/Verbraucherzentrale_artikel.dvc` is a pointer to the raw PDF corpus. The PDF files themselves are managed by DVC and should not be committed to Git.
+Around 65 PDF articles are included in the initial corpus. The Git-tracked file `data/Verbraucherzentrale_artikel.dvc` is a pointer to the raw PDF corpus. The PDF files themselves are managed by DVC and should not be committed to Git.
 
 ### Ingest the PDFs
 
