@@ -268,7 +268,9 @@ def test_ingestion_writes_manifest_and_carries_url(tmp_path, monkeypatch) -> Non
     record = json.loads(output_path.read_text(encoding="utf-8"))
     manifest_path = output_path.with_suffix(".jsonl.manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    plot_path = output_path.with_name("chunks_chunk_size_distribution.png")
     assert record["url"] == article_url
+    assert plot_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert manifest["chunking"] == {"chunk_size": 80, "overlap": 10}
     assert manifest["input"]["files"] == [{"path": source_path.name, "sha256": digest}]
     assert manifest["input"]["dvc"] == {

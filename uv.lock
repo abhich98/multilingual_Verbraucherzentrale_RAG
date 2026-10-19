@@ -2243,6 +2243,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dvc" },
     { name = "faiss-cpu" },
+    { name = "pillow" },
     { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -2261,6 +2262,7 @@ dev = [
 requires-dist = [
     { name = "dvc", specifier = ">=3.67.1" },
     { name = "faiss-cpu", specifier = ">=1.15.1" },
+    { name = "pillow", specifier = ">=12.3.0" },
     { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "pyyaml", specifier = ">=6.0.2" },

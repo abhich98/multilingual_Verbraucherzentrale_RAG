@@ -8,9 +8,12 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from importlib import import_module
+from math import ceil, sqrt
 from pathlib import Path
 from typing import Any, Iterator, Protocol
 from urllib.parse import urlsplit
+
+from PIL import Image, ImageDraw, ImageFont
 
 from multilingual_rag.ingestion.filtering import (
     extract_page_text,
@@ -230,6 +233,56 @@ def chunk_pages(
     return chunks
 
 
+def _plot_chunk_size_distribution(
+    chunks: list[TextChunk],
+    output_path: Path,
+    *,
+    chunk_size: int,
+    overlap: int,
+) -> Path:
+    plot_path = output_path.with_name(f"{output_path.stem}_chunk_size_distribution.png")
+    sizes = [len(chunk.text) for chunk in chunks]
+    width, height = 1200, 720
+    left, top, right, bottom = 100, 145, 1140, 610
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=18)
+    title_font = ImageFont.load_default(size=24)
+    draw.text(
+        (left, 35),
+        f"Chunk size distribution (count={len(chunks)}, size={chunk_size}, overlap={overlap})",
+        fill="#202b2b",
+        font=title_font,
+    )
+    draw.text((left, 90), "Number of chunks", fill="#405050", font=font)
+    draw.line((left, top, left, bottom, right, bottom), fill="#526262", width=2)
+
+    if sizes:
+        bin_count = min(20, max(1, ceil(sqrt(len(sizes)))))
+        minimum, maximum = min(sizes), max(sizes)
+        bin_width = max(1, ceil((maximum - minimum + 1) / bin_count))
+        counts = [0] * bin_count
+        for size in sizes:
+            counts[min((size - minimum) // bin_width, bin_count - 1)] += 1
+        max_count = max(counts)
+        plot_height = bottom - top
+        slot_width = (right - left) / bin_count
+        for index, count in enumerate(counts):
+            x0 = round(left + index * slot_width + 2)
+            x1 = round(left + (index + 1) * slot_width - 2)
+            y1 = bottom - 1
+            y0 = bottom - round(count / max_count * (plot_height - 25))
+            draw.rectangle((x0, y0, x1, y1), fill="#39796b")
+        draw.text((left, bottom + 18), str(minimum), fill="#405050", font=font)
+        draw.text((right - 55, bottom + 18), str(maximum), fill="#405050", font=font)
+    else:
+        draw.text((left + 20, top + 35), "No chunks generated", fill="#405050", font=font)
+
+    draw.text((left + (right - left) // 2 - 110, height - 45), "Chunk size (characters)", fill="#405050", font=font)
+    image.save(plot_path, format="PNG")
+    return plot_path
+
+
 def ingest_pdf_directory(
     input_dir: Path,
     output_path: Path,
@@ -276,6 +329,12 @@ def ingest_pdf_directory(
     )
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
     write_json_atomic(manifest_path, manifest)
+    plot_path = _plot_chunk_size_distribution(
+        chunks,
+        output_path,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
     logger.info(
         "PDF ingestion complete",
         extra={
@@ -283,6 +342,7 @@ def ingest_pdf_directory(
             "chunk_count": len(chunks),
             "output_path": str(output_path),
             "manifest_path": str(manifest_path),
+            "plot_path": str(plot_path),
         },
     )
     return len(chunks)
