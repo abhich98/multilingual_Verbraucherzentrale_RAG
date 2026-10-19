@@ -105,12 +105,14 @@ E5 uses the `passage: ` prefix for indexed chunks and the `query: ` prefix for u
 
 With the current RAG setup, preliminary **retrieval** evaluation shows decent results, indicating that the system is able to find relevant context for user queries. But, there is still room for improvement, there appears to be a gap in the quality of retrieved content for German vs English queries. Since, the corpus is primarily in German, the system appears to perform better for German queries compared to English ones.
 
+
 | Group | n (# queries) | MRR | Recall@1 | Recall@3 | Recall@5 | Recall@10 | Hit@1 | Hit@3 | Hit@5 | Hit@10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Overall | 32 | 0.593 | 0.370 | 0.521 | 0.635 | 0.734 | 0.500 | 0.656 | 0.750 | 0.812 |
+| Overall | 32 | 0.653 | 0.385 | 0.586 | 0.690 | 0.906 | 0.531 | 0.719 | 0.812 | 1.000 |
 | German (`de`) | 11 | 0.753 | 0.545 | **0.758** | **0.758** | 1.000 | 0.636 | 0.909 | 0.909 | 1.000 |
-| English (`en`) | 21 | 0.509 | 0.278 | **0.397** | **0.571** | 0.595 | 0.429 | 0.524 | 0.667 | 0.714 |
+| English (`en`) | 21 | 0.601 | 0.302 | **0.496** | **0.655** | 0.857 | 0.476 | 0.619 | 0.762 | 1.000 |
 
+**Future directions**: Change the chunk size to see if that improves the retrieval performance for English queries.
 
 ## Configuration and Application
 
@@ -159,5 +161,4 @@ The interface accepts questions in a chat box, retrieves relevant article chunks
 # TODO
 
 - There seem to some lines getting cut at the articles when extracting text from Verbraucherzentrale PDFs.
-- Either remove the pdfs causing empty chunks or fix the text extraction process to handle them correctly.
 - May be should run the embedding and indexing in a docker container for faster app startup, since loading the models and embeddings can be time-consuming.
