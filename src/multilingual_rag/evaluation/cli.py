@@ -14,11 +14,10 @@ from multilingual_rag.evaluation.export import to_giskard, to_ragas
 from multilingual_rag.evaluation.golden import (
     ChunkLookup,
     UnresolvedEvidenceError,
-    load_jsonl,
     resolve_item,
-    write_jsonl,
 )
 from multilingual_rag.evaluation.metrics import QueryResult, summarize, summarize_by
+from multilingual_rag.json_utils import load_jsonl, write_jsonl_atomic
 from multilingual_rag.retrieval.embeddings import DEFAULT_MODEL_NAME
 
 logger = logging.getLogger(__name__)
@@ -116,7 +115,7 @@ def run_retrieval(args: argparse.Namespace) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report_path = args.output_dir / f"retrieval_{stamp}.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_jsonl(args.output_dir / f"retrieval_{stamp}_per_query.jsonl", per_query)
+    write_jsonl_atomic(args.output_dir / f"retrieval_{stamp}_per_query.jsonl", per_query)
 
     _print_table("overall", {"all": report["overall"]}, ks)
     _print_table("question_type", report["by_question_type"], ks)
@@ -139,16 +138,16 @@ def run_refresh(args: argparse.Namespace) -> None:
     items = load_jsonl(args.dataset)
     lookup = ChunkLookup(load_jsonl(args.chunks))
     refreshed = [refresh_item(item, lookup) for item in items]
-    write_jsonl(args.dataset, refreshed)
+    write_jsonl_atomic(args.dataset, refreshed)
     print(f"Refreshed {len(refreshed)} items against {args.chunks}")
 
 
 def run_export(args: argparse.Namespace) -> None:
     items = load_jsonl(args.dataset)
     out = args.output_dir
-    write_jsonl(out / "ragas_golden.jsonl", [to_ragas(item) for item in items if item["answerable"]])
-    write_jsonl(out / "ragas_golden_unanswerable.jsonl", [to_ragas(item) for item in items if not item["answerable"]])
-    write_jsonl(out / "giskard_qatestset.jsonl", [to_giskard(item) for item in items])
+    write_jsonl_atomic(out / "ragas_golden.jsonl", [to_ragas(item) for item in items if item["answerable"]])
+    write_jsonl_atomic(out / "ragas_golden_unanswerable.jsonl", [to_ragas(item) for item in items if not item["answerable"]])
+    write_jsonl_atomic(out / "giskard_qatestset.jsonl", [to_giskard(item) for item in items])
     print(f"Wrote Ragas and Giskard files to {out}")
 
 

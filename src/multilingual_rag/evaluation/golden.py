@@ -8,11 +8,9 @@ re-map the gold labels onto whatever chunks the active index was built from.
 
 from __future__ import annotations
 
-import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 _WHITESPACE = re.compile(r"\s+")
@@ -21,18 +19,6 @@ _WHITESPACE = re.compile(r"\s+")
 def normalize(text: str) -> str:
     """Collapse whitespace so quotes match across PDF line breaks."""
     return _WHITESPACE.sub(" ", text).strip()
-
-
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    with path.open(encoding="utf-8") as handle:
-        return [json.loads(line) for line in handle if line.strip()]
-
-
-def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 @dataclass

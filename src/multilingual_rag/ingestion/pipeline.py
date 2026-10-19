@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import os
 import re
-import tempfile
 import unicodedata
 from dataclasses import asdict, dataclass
 from importlib import import_module
@@ -21,7 +18,7 @@ from multilingual_rag.ingestion.filtering import (
     get_publisher_profile,
 )
 from multilingual_rag.ingestion.manifest import build_ingestion_manifest
-from multilingual_rag.json_utils import write_json_atomic
+from multilingual_rag.json_utils import write_json_atomic, write_jsonl_atomic
 
 
 logger = logging.getLogger(__name__)
@@ -227,25 +224,6 @@ def chunk_pages(
     return chunks
 
 
-def _write_jsonl_atomic(output_path: Path, chunks: list[TextChunk]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=output_path.parent,
-            prefix=f".{output_path.name}.", suffix=".tmp", delete=False,
-        ) as stream:
-            temporary_path = Path(stream.name)
-            for chunk in chunks:
-                stream.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary_path.replace(output_path)
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
-
-
 def ingest_pdf_directory(
     input_dir: Path, output_path: Path, *, chunk_size: int = 1000, overlap: int = 150
 ) -> int:
@@ -265,7 +243,7 @@ def ingest_pdf_directory(
         source_digests[pages[0].source_path] = pages[0].source_sha256
         pages = filter_pages(pages)
         chunks.extend(chunk_pages(pages, chunk_size=chunk_size, overlap=overlap))
-    _write_jsonl_atomic(output_path, chunks)
+    write_jsonl_atomic(output_path, (asdict(chunk) for chunk in chunks))
 
     manifest = build_ingestion_manifest(
         input_dir,
