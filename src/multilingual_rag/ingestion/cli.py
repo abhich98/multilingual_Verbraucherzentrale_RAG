@@ -19,11 +19,20 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("artifacts/chunks.jsonl"))
     parser.add_argument("--chunk-size", type=int, default=1000, help="Maximum chunk size in characters")
     parser.add_argument("--overlap", type=int, default=150, help="Character overlap between chunks")
+    parser.add_argument(
+        "--skip-dvc-check",
+        action="store_true",
+        help="Skip checking that the input matches a committed DVC pointer",
+    )
     args = parser.parse_args()
 
     try:
         count = ingest_pdf_directory(
-            args.input, args.output, chunk_size=args.chunk_size, overlap=args.overlap
+            args.input,
+            args.output,
+            chunk_size=args.chunk_size,
+            overlap=args.overlap,
+            skip_dvc_check=args.skip_dvc_check,
         )
     except (IngestionError, ValueError) as exc:
         parser.error(str(exc))

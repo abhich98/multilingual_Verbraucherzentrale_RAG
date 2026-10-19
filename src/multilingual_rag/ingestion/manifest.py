@@ -11,6 +11,7 @@ from pathlib import Path
 from multilingual_rag.ingestion.filtering import (
     PUBLISHER_PROFILES,
 )
+from multilingual_rag.ingestion.dvc_utils import DVCSource
 from multilingual_rag import INGESTION_MANIFEST_VERSION
 
 
@@ -34,6 +35,7 @@ def build_ingestion_manifest(
     output_path: Path,
     source_digests: dict[str, str],
     *,
+    dvc_source: DVCSource | None,
     chunk_size: int,
     overlap: int,
     chunk_count: int,
@@ -54,6 +56,16 @@ def build_ingestion_manifest(
         "pipeline": {"git_commit": _get_git_commit(input_dir)},
         "input": {
             "directory": input_dir.name,
+            "dvc": (
+                {
+                    "pointer_path": dvc_source.pointer_path,
+                    "output_path": dvc_source.output_path,
+                    "md5": dvc_source.md5,
+                    "verified": dvc_source.verified,
+                }
+                if dvc_source is not None
+                else None
+            ),
             "source_data_sha256": source_fingerprint,
             "files": source_files,
         },

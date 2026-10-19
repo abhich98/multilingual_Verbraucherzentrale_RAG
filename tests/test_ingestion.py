@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -237,6 +238,7 @@ def test_extract_page_text_removes_only_repeated_print_margins() -> None:
 
 def test_ingestion_writes_manifest_and_carries_url(tmp_path, monkeypatch) -> None:
     import multilingual_rag.ingestion.pipeline as pipeline
+    from multilingual_rag.ingestion.dvc_utils import DVCSource
 
     input_dir = tmp_path / "source"
     input_dir.mkdir()
@@ -253,8 +255,15 @@ def test_ingestion_writes_manifest_and_carries_url(tmp_path, monkeypatch) -> Non
             DocumentPage(path.name, article_url, digest, "Article Verbraucherzentrale", "de", 1, "Text")
         ],
     )
+    monkeypatch.setattr(
+        pipeline,
+        "get_dvc_source",
+        lambda _: DVCSource("data/source.dvc", "source", "abc123.dir", False),
+    )
 
-    assert ingest_pdf_directory(input_dir, output_path, chunk_size=80, overlap=10) == 1
+    assert ingest_pdf_directory(
+        input_dir, output_path, chunk_size=80, overlap=10, skip_dvc_check=True
+    ) == 1
 
     record = json.loads(output_path.read_text(encoding="utf-8"))
     manifest_path = output_path.with_suffix(".jsonl.manifest.json")
@@ -262,5 +271,94 @@ def test_ingestion_writes_manifest_and_carries_url(tmp_path, monkeypatch) -> Non
     assert record["url"] == article_url
     assert manifest["chunking"] == {"chunk_size": 80, "overlap": 10}
     assert manifest["input"]["files"] == [{"path": source_path.name, "sha256": digest}]
+    assert manifest["input"]["dvc"] == {
+        "pointer_path": "data/source.dvc",
+        "output_path": "source",
+        "md5": "abc123.dir",
+        "verified": False,
+    }
     assert manifest["output"]["chunk_count"] == 1
     assert manifest["output"]["sha256"] == hashlib.sha256(output_path.read_bytes()).hexdigest()
+
+
+def test_validate_dvc_input_requires_clean_committed_pointer(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    import multilingual_rag.ingestion.dvc_utils as dvc_utils
+
+    input_dir = tmp_path / "source"
+    input_dir.mkdir()
+    pointer = tmp_path / "source.dvc"
+    pointer.write_text(
+        "outs:\n- md5: abc123.dir\n  size: 10\n  nfiles: 1\n  hash: md5\n  path: source\n",
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def run_git(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, str(tmp_path) if "--show-toplevel" in args else "", "")
+
+    def run_dvc(*args, **kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args[0], 0, "{}", "")
+
+    monkeypatch.setattr(dvc_utils, "_run_git", run_git)
+    monkeypatch.setattr(dvc_utils.subprocess, "run", run_dvc)
+
+    source = dvc_utils.validate_dvc_input(input_dir)
+
+    assert source.pointer_path == "source.dvc"
+    assert source.output_path == "source"
+    assert source.md5 == "abc123.dir"
+    assert source.verified is True
+    assert ["ls-files", "--error-unmatch", "--", "source.dvc"] in calls
+    assert ["diff", "--quiet", "HEAD", "--", "source.dvc"] in calls
+
+
+def test_validate_dvc_input_rejects_changed_dvc_data(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    import multilingual_rag.ingestion.dvc_utils as dvc_utils
+
+    input_dir = tmp_path / "source"
+    input_dir.mkdir()
+    (tmp_path / "source.dvc").write_text(
+        "outs:\n- md5: abc123.dir\n  path: source\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        dvc_utils,
+        "_run_git",
+        lambda args, *, cwd: subprocess.CompletedProcess(args, 0, str(tmp_path) if "--show-toplevel" in args else "", ""),
+    )
+    monkeypatch.setattr(
+        dvc_utils.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, '{"source.dvc": {"changed outs": ["source"]}}', ""),
+    )
+
+    with pytest.raises(dvc_utils.DVCInputError, match="not up to date"):
+        dvc_utils.validate_dvc_input(input_dir)
+
+
+def test_validate_dvc_input_rejects_uncommitted_pointer(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    import multilingual_rag.ingestion.dvc_utils as dvc_utils
+
+    input_dir = tmp_path / "source"
+    input_dir.mkdir()
+    (tmp_path / "source.dvc").write_text(
+        "outs:\n- md5: abc123.dir\n  path: source\n", encoding="utf-8"
+    )
+    calls: list[list[str]] = []
+
+    def run_git(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[0] == "diff":
+            raise dvc_utils.DVCInputError("pointer is not committed")
+        return subprocess.CompletedProcess(args, 0, str(tmp_path) if "--show-toplevel" in args else "", "")
+
+    monkeypatch.setattr(dvc_utils, "_run_git", run_git)
+    with pytest.raises(dvc_utils.DVCInputError, match="uncommitted changes"):
+        dvc_utils.validate_dvc_input(input_dir)
+    assert not any(args[0] == "dvc" for args in calls)

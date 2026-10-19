@@ -17,6 +17,12 @@ from multilingual_rag.ingestion.filtering import (
     filter_pages,
     get_publisher_profile,
 )
+from multilingual_rag.ingestion.dvc_utils import (
+    DVCInputError,
+    DVCSource,
+    get_dvc_source,
+    validate_dvc_input,
+)
 from multilingual_rag.ingestion.manifest import build_ingestion_manifest
 from multilingual_rag.json_utils import write_json_atomic, write_jsonl_atomic
 
@@ -225,12 +231,26 @@ def chunk_pages(
 
 
 def ingest_pdf_directory(
-    input_dir: Path, output_path: Path, *, chunk_size: int = 1000, overlap: int = 150
+    input_dir: Path,
+    output_path: Path,
+    *,
+    chunk_size: int = 1000,
+    overlap: int = 150,
+    skip_dvc_check: bool = False,
 ) -> int:
     """Ingest PDFs recursively and return the number of written chunks."""
     input_dir = input_dir.resolve()
     if not input_dir.is_dir():
         raise IngestionError(f"Input directory does not exist: {input_dir}")
+    dvc_source: DVCSource | None
+    if skip_dvc_check:
+        dvc_source = get_dvc_source(input_dir)
+        logger.warning("Skipping DVC freshness and commit checks", extra={"input_dir": str(input_dir)})
+    else:
+        try:
+            dvc_source = validate_dvc_input(input_dir)
+        except DVCInputError as exc:
+            raise IngestionError(str(exc)) from exc
     pdf_paths = sorted(path for path in input_dir.rglob("*.pdf") if path.is_file())
     if not pdf_paths:
         raise IngestionError(f"No PDF files found under {input_dir}")
@@ -249,6 +269,7 @@ def ingest_pdf_directory(
         input_dir,
         output_path,
         source_digests,
+        dvc_source=dvc_source,
         chunk_size=chunk_size,
         overlap=overlap,
         chunk_count=len(chunks),
