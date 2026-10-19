@@ -49,23 +49,16 @@ The first indexing run downloads the embedding model and creates local FAISS art
 
 ## Data and Indexing Workflow
 
-### Obtain the source data
+### Source data
 
 Around 65 PDF articles are included in the initial corpus. The Git-tracked file `data/Verbraucherzentrale_artikel.dvc` is a pointer to the raw PDF corpus. The PDF files themselves are managed by DVC and should not be committed to Git.
 
-### Ingest the PDFs
+### Ingesting the PDFs
 
 The PDFs stored in the `data/Verbraucherzentrale_artikel/` directory are ingested by default when running the ingestion command. The relevant text is chunked into page-local segments with provenance metadata. Run the default ingestion command:
 
 ```bash
 uv run rag-ingest
-```
-
-The default input and output paths are:
-
-```text
-input:  data/Verbraucherzentrale_artikel/
-output: artifacts/chunks.jsonl
 ```
 
 To customize the run:
@@ -78,9 +71,9 @@ uv run rag-ingest \
 	--overlap 150
 ```
 
-Chunks are kept within their source page. The default maximum chunk size is 1,000 characters with 150 characters of overlap. The ingestion pipeline normalizes extracted text, removes known Verbraucherzentrale print and article boilerplate, extracts article URLs when possible, and preserves source metadata. The `artifacts/` directory is ignored by Git and should be regenerated locally. Invalid or image-only PDFs fail explicitly and require an OCR decision; they are not silently converted into empty chunks.
+Chunks are kept within their source page. The default maximum chunk size is 1,000 characters with 150 characters of overlap. The ingestion pipeline normalizes extracted text, removes known Verbraucherzentrale print and article boilerplate, extracts article URLs when possible, and preserves source metadata. The chunks are saved in the `artifacts/` directory.
 
-### Build the retrieval index
+### Building the retrieval index
 
 The retrieval index is built from the ingested chunks and is used to quickly find relevant context for user queries. It is based on FAISS and uses the E5 embeddings for semantic search. 
 Build the default local index after ingestion:
@@ -89,7 +82,7 @@ Build the default local index after ingestion:
 uv run rag-index
 ```
 
-The default command reads `artifacts/chunks.jsonl`, writes under `artifacts/indexes`, uses `intfloat/multilingual-e5-small`, runs on CPU, and uses a batch size of 32. This model is picked for its support of English and German languages and considering the small size of the initial corpus, it provides a good balance between performance and resource usage.
+The default command reads `artifacts/chunks.jsonl`, writes under `artifacts/indexes`, uses `intfloat/multilingual-e5-small`, runs on CPU, and uses a batch size of 32. This model is picked for its support of English and German languages and considering the small size of the initial corpus.
 
 Available options include:
 
@@ -107,6 +100,17 @@ uv run rag-index \
 E5 uses the `passage: ` prefix for indexed chunks and the `query: ` prefix for user questions. Embeddings are normalized and searched with inner product, which is equivalent to cosine similarity for these vectors. `current.json` identifies the active complete build. If the embedding model or revision changes, rebuild the index before starting the application. Retrieval rejects an active index whose embedding metadata does not match the configured model or revision.
 
 **Retrieval is available through the Python API and the Streamlit application.**
+
+## Evaluation and metrics
+
+With the current RAG setup, preliminary **retrieval** evaluation shows decent results, indicating that the system is able to find relevant context for user queries. But, there is still room for improvement, there appears to be a gap in the quality of retrieved content for German vs English queries. Since, the corpus is primarily in German, the system appears to perform better for German queries compared to English ones.
+
+| Group | n (# queries) | MRR | Recall@1 | Recall@3 | Recall@5 | Recall@10 | Hit@1 | Hit@3 | Hit@5 | Hit@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Overall | 32 | 0.593 | 0.370 | 0.521 | 0.635 | 0.734 | 0.500 | 0.656 | 0.750 | 0.812 |
+| German (`de`) | 11 | 0.753 | 0.545 | **0.758** | **0.758** | 1.000 | 0.636 | 0.909 | 0.909 | 1.000 |
+| English (`en`) | 21 | 0.509 | 0.278 | **0.397** | **0.571** | 0.595 | 0.429 | 0.524 | 0.667 | 0.714 |
+
 
 ## Configuration and Application
 
@@ -155,5 +159,5 @@ The interface accepts questions in a chat box, retrieves relevant article chunks
 # TODO
 
 - There seem to some lines getting cut at the articles when extracting text from Verbraucherzentrale PDFs.
-- Move json read and write operations to a separate utility function for better code organization.
+- Either remove the pdfs causing empty chunks or fix the text extraction process to handle them correctly.
 - May be should run the embedding and indexing in a docker container for faster app startup, since loading the models and embeddings can be time-consuming.

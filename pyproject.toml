@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 rag-ingest = "multilingual_rag.ingestion.cli:main"
 rag-index = "multilingual_rag.retrieval.cli:main"
+rag-eval = "multilingual_rag.evaluation.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

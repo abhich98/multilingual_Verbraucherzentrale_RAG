@@ -17,3 +17,6 @@
 
 **/.pytest_cache/
 
+# evaluation outputs
+eval/results/
+eval/exports/
